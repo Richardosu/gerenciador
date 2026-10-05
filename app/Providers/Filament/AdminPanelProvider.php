@@ -33,6 +33,7 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->databaseNotifications()
+            ->readOnlyRelationManagersOnResourceViewPagesByDefault(false)
             ->plugin(FilamentShieldPlugin::make())
             ->colors([
                 'primary' => Color::Amber,

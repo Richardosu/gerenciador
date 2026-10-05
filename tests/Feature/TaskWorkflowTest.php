@@ -8,13 +8,25 @@ use App\Enums\Priority;
 use App\Enums\ProjectStatus;
 use App\Enums\RoleName;
 use App\Enums\TaskStatus;
+use App\Filament\Resources\Projects\Pages\EditProject;
+use App\Filament\Resources\Projects\RelationManagers\MembersRelationManager;
+use App\Filament\Resources\Projects\RelationManagers\TasksRelationManager;
+use App\Filament\Resources\Tasks\Pages\CreateTask;
+use App\Filament\Resources\Tasks\Pages\EditTask;
+use App\Filament\Resources\Tasks\RelationManagers\AttachmentsRelationManager;
+use App\Filament\Resources\Tasks\RelationManagers\CommentsRelationManager;
+use App\Filament\Resources\Tasks\RelationManagers\SubtasksRelationManager;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
 use Database\Seeders\ProjectManagementSeeder;
+use Filament\Facades\Filament;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -388,6 +400,179 @@ class TaskWorkflowTest extends TestCase
             ->assertOk()
             ->assertSee('Minha tarefa no backlog')
             ->assertSee('Minha tarefa concluída');
+    }
+
+    public function test_manager_can_view_project_members_and_tasks_relation_managers(): void
+    {
+        $manager = $this->createUserWithRole(RoleName::Manager);
+        $member = $this->createUserWithRole(RoleName::Member);
+        $project = $this->createProject($manager);
+
+        $this->actingAs($manager);
+        Filament::setCurrentPanel('admin');
+        Filament::bootCurrentPanel();
+
+        $project->members()->attach($member->id);
+        $task = $this->createTask($project, $manager, $member);
+
+        Livewire::test(MembersRelationManager::class, [
+            'ownerRecord' => $project,
+            'pageClass' => EditProject::class,
+        ])
+            ->assertOk()
+            ->assertCanSeeTableRecords([$member]);
+
+        Livewire::test(TasksRelationManager::class, [
+            'ownerRecord' => $project,
+            'pageClass' => EditProject::class,
+        ])
+            ->assertOk()
+            ->assertCanSeeTableRecords([$task]);
+    }
+
+    public function test_task_relation_managers_create_comments_and_subtasks(): void
+    {
+        $manager = $this->createUserWithRole(RoleName::Manager);
+        $project = $this->createProject($manager);
+        $task = $this->createTask($project, $manager, $manager);
+
+        $this->actingAs($manager);
+        Filament::setCurrentPanel('admin');
+        Filament::bootCurrentPanel();
+
+        Livewire::test(CommentsRelationManager::class, [
+            'ownerRecord' => $task,
+            'pageClass' => EditTask::class,
+        ])
+            ->assertOk()
+            ->assertSee('Adicionar comentário');
+
+        $comment = $task->comments()->create([
+            'user_id' => $manager->id,
+            'body' => 'Comentário pelo Relation Manager.',
+        ]);
+
+        $this->assertDatabaseHas('task_comments', [
+            'task_id' => $task->id,
+            'user_id' => $manager->id,
+            'body' => 'Comentário pelo Relation Manager.',
+        ]);
+
+        Livewire::test(SubtasksRelationManager::class, [
+            'ownerRecord' => $task,
+            'pageClass' => EditTask::class,
+        ])
+            ->assertOk()
+            ->assertSee('Adicionar subtarefa');
+
+        $subtask = $task->subtasks()->create([
+            'title' => 'Subtarefa pelo Relation Manager',
+            'status' => 'pending',
+        ]);
+
+        $this->assertDatabaseHas('subtasks', [
+            'task_id' => $task->id,
+            'title' => 'Subtarefa pelo Relation Manager',
+            'status' => 'pending',
+        ]);
+
+        Livewire::test(CommentsRelationManager::class, [
+            'ownerRecord' => $task,
+            'pageClass' => EditTask::class,
+        ])
+            ->loadTable()
+            ->assertCanSeeTableRecords([$comment]);
+
+        Livewire::test(SubtasksRelationManager::class, [
+            'ownerRecord' => $task,
+            'pageClass' => EditTask::class,
+        ])
+            ->loadTable()
+            ->assertCanSeeTableRecords([$subtask]);
+    }
+
+    public function test_task_attachments_can_be_viewed_downloaded_and_removed_with_access_control(): void
+    {
+        Storage::fake('local');
+
+        $manager = $this->createUserWithRole(RoleName::Manager);
+        $member = $this->createUserWithRole(RoleName::Member);
+        $otherMember = $this->createUserWithRole(RoleName::Member);
+        $project = $this->createProject($manager);
+        $project->members()->attach([$member->id, $otherMember->id]);
+        $task = $this->createTask($project, $manager, $member);
+        $attachment = $task
+            ->addMedia(UploadedFile::fake()->createWithContent('specification.txt', 'Task specification'))
+            ->toMediaCollection('attachments');
+
+        $this->actingAs($member);
+        Filament::setCurrentPanel('admin');
+        Filament::bootCurrentPanel();
+
+        Livewire::test(AttachmentsRelationManager::class, [
+            'ownerRecord' => $task,
+            'pageClass' => ViewTask::class,
+        ])
+            ->assertOk()
+            ->assertCanSeeTableRecords([$attachment])
+            ->assertSee('Baixar');
+
+        $download = $this->get(route('tasks.attachments.download', [$task, $attachment]));
+        $download->assertOk();
+        $this->assertSame(
+            'attachment; filename="specification.txt"',
+            $download->headers->get('content-disposition'),
+        );
+
+        $this->actingAs($otherMember)
+            ->get(route('tasks.attachments.download', [$task, $attachment]))
+            ->assertForbidden();
+
+        $this->actingAs($manager);
+        Filament::setCurrentPanel('admin');
+        Filament::bootCurrentPanel();
+
+        Livewire::test(AttachmentsRelationManager::class, [
+            'ownerRecord' => $task,
+            'pageClass' => EditTask::class,
+        ])
+            ->assertOk()
+            ->assertCanSeeTableRecords([$attachment])
+            ->assertSee('Remover');
+
+        $attachment->delete();
+
+        $this->assertDatabaseMissing('media', ['id' => $attachment->id]);
+        Storage::disk('local')->assertMissing($attachment->getPathRelativeToRoot());
+    }
+
+    public function test_manager_can_create_a_task_through_the_task_resource_form(): void
+    {
+        $manager = $this->createUserWithRole(RoleName::Manager);
+        $project = $this->createProject($manager);
+        $this->actingAs($manager);
+        Filament::setCurrentPanel('admin');
+        Filament::bootCurrentPanel();
+
+        Livewire::test(CreateTask::class)
+            ->fillForm([
+                'title' => 'Tarefa criada pelo Resource',
+                'project_id' => $project->id,
+                'assignee_id' => $manager->id,
+                'priority' => Priority::High->value,
+                'status' => TaskStatus::Todo->value,
+                'start_date' => today()->toDateString(),
+                'due_date' => today()->addDays(5)->toDateString(),
+                'estimated_hours' => 3,
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $this->assertDatabaseHas('tasks', [
+            'project_id' => $project->id,
+            'created_by' => $manager->id,
+            'title' => 'Tarefa criada pelo Resource',
+        ]);
     }
 
     private function createUserWithRole(RoleName $roleName): User

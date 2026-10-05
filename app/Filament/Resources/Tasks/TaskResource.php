@@ -10,6 +10,7 @@ use App\Filament\Resources\Tasks\Pages\CreateTask;
 use App\Filament\Resources\Tasks\Pages\EditTask;
 use App\Filament\Resources\Tasks\Pages\ListTasks;
 use App\Filament\Resources\Tasks\Pages\ViewTask;
+use App\Filament\Resources\Tasks\RelationManagers\AttachmentsRelationManager;
 use App\Filament\Resources\Tasks\RelationManagers\CommentsRelationManager;
 use App\Filament\Resources\Tasks\RelationManagers\SubtasksRelationManager;
 use App\Models\Project;
@@ -201,7 +202,11 @@ class TaskResource extends Resource
 
     public static function getRelations(): array
     {
-        return [SubtasksRelationManager::class, CommentsRelationManager::class];
+        return [
+            SubtasksRelationManager::class,
+            CommentsRelationManager::class,
+            AttachmentsRelationManager::class,
+        ];
     }
 
     public static function infolist(Schema $schema): Schema
