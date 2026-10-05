@@ -1,58 +1,179 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Gerenciador de Projetos e Tarefas
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Aplicação interna para organizar projetos, participantes, tarefas, subtarefas, comentários e arquivos anexados. O projeto tem finalidade de estudo: demonstra recursos do Laravel, Eloquent, Filament, Policies e permissões por perfil.
 
-## About Laravel
+## Tecnologias
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP 8.3 ou superior e Laravel 13
+- Filament 4 para o painel administrativo
+- PostgreSQL 16
+- Eloquent ORM
+- Filament Shield e Spatie Laravel Permission para roles e permissões
+- Spatie Media Library para anexos
+- Vite, Node.js e npm para os recursos de frontend
+- Docker Compose para executar o PostgreSQL localmente
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Requisitos
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- PHP 8.3+ com extensões necessárias pelo Laravel, incluindo `pdo_pgsql`
+- Composer
+- Node.js e npm
+- Docker Engine com Docker Compose, ou um servidor PostgreSQL 16 acessível
 
-## Learning Laravel
+Confira a conexão do PostgreSQL no `.env`. O arquivo `.env.example` já usa o banco local deste Compose:
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+| Configuração | Valor padrão |
+| --- | --- |
+| Banco | `gerenciador` |
+| Host e porta | `127.0.0.1:5432` |
+| Usuário | `gerenciador` |
+| Senha | `gerenciador` |
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Instalação e execução local
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+Execute os comandos a partir da pasta raiz do projeto.
 
-## Agentic Development
+1. Inicie o PostgreSQL:
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+   ```bash
+   docker compose up -d postgres
+   docker compose ps
+   ```
+
+   Aguarde o serviço `gerenciador-postgres` ficar `healthy`.
+
+2. Instale as dependências PHP e JavaScript:
+
+   ```bash
+   composer install
+   npm install
+   ```
+
+3. Crie o arquivo de ambiente, se ainda não existir, e gere a chave da aplicação:
+
+   ```bash
+   cp .env.example .env
+   php artisan key:generate
+   ```
+
+   Se o `.env` já existir, não o sobrescreva com o exemplo. Confira apenas as variáveis de conexão do PostgreSQL e mantenha sua chave atual.
+
+4. Crie as tabelas, permissões e dados demonstrativos:
+
+   ```bash
+   php artisan migrate --seed
+   ```
+
+5. Crie o link público de armazenamento para os arquivos enviados:
+
+   ```bash
+   php artisan storage:link
+   ```
+
+6. Inicie o servidor Laravel, a fila, os logs e o Vite:
+
+   ```bash
+   composer run dev
+   ```
+
+7. Abra o painel Filament em [http://localhost:8000/admin](http://localhost:8000/admin).
+
+O comando `composer run dev` mantém os processos em execução no terminal. Use `Ctrl+C` para encerrá-los. Se preferir compilar os recursos uma vez em vez de manter o Vite ativo, rode `npm run build` e inicie o servidor Laravel separadamente com `php artisan serve`.
+
+### Atalho de instalação
+
+Com um PostgreSQL já iniciado e o arquivo `.env` corretamente configurado, o script `composer run setup` automatiza instalação de dependências, chave (se aplicável), migrations e build do frontend. Em ambientes existentes, confira o `.env` antes de usar o atalho.
+
+## Contas de demonstração
+
+O seeder cria três contas locais:
+
+| Perfil | E-mail |
+| --- | --- |
+| Administrador | `admin@example.com` |
+| Gestor | `gestor@example.com` |
+| Membro | `membro@example.com` |
+
+A senha das três contas é `password`.
+
+> **Atenção:** essas credenciais são exclusivamente para desenvolvimento e demonstração. Troque-as ou remova essas contas antes de qualquer uso fora de um ambiente local.
+
+Para recriar/atualizar os dados de exemplo sem apagar o banco:
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+php artisan db:seed
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+O seeder prepara os papéis e as permissões do Shield, os usuários, um projeto, tarefas em diferentes estados e algumas subtarefas. Ele usa `updateOrCreate`/`firstOrCreate` para poder ser executado novamente.
 
-## Contributing
+## Como usar
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+1. Entre no painel com uma das contas de demonstração.
+2. Em **Projetos**, consulte o andamento e o progresso calculado. Gestores podem administrar os próprios projetos e associar membros.
+3. Em **Tarefas**, crie tarefas em projetos abertos, escolha um responsável que participe do projeto e defina prioridade e prazo.
+4. Abra uma tarefa para consultar subtarefas, comentários e anexos. Participantes autorizados podem comentar e baixar anexos; gestores do projeto podem administrar a tarefa e os arquivos.
+5. Use **Minhas tarefas** para filtrar as tarefas atribuídas ao usuário por todas, a fazer, em andamento, em revisão, atrasadas e concluídas.
+6. No dashboard, confira indicadores, a distribuição das tarefas por status e os próximos vencimentos.
+7. Use a área de **Shield / Roles** para revisar papéis e permissões. O código também aplica Policies e regras de negócio, portanto permissões de navegação não substituem as verificações de acesso por projeto.
 
-## Code of Conduct
+### Perfis
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- **Administrador:** acesso administrativo amplo a usuários, projetos, tarefas e permissões.
+- **Gestor:** administra projetos sob sua responsabilidade, seus membros e tarefas.
+- **Membro:** vê projetos dos quais participa e tarefas atribuídas a si; pode alterar o status das próprias tarefas e comentar.
 
-## Security Vulnerabilities
+## Regras de negócio importantes
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+- Cada tarefa pertence a um projeto; o responsável precisa ser membro do projeto.
+- Projetos concluídos ou cancelados não recebem novas tarefas.
+- Datas de início e prazo das tarefas respeitam o período do projeto.
+- Uma tarefa vencida e ainda aberta é identificada como atrasada por consulta, sem um status `overdue` no banco.
+- `completed_at` é preenchido ao concluir uma tarefa e limpo ao reabri-la.
+- Um projeto só pode ser concluído quando suas tarefas estiverem concluídas ou canceladas; a conclusão é uma ação explícita.
+- O progresso do projeto é calculado a partir das tarefas e não é editado manualmente.
+- Notificações internas do Filament avisam sobre atribuições e conclusões de tarefas. Não há envio externo de e-mail ou mensagens.
 
-## License
+## Estrutura de dados
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+As migrations criam, entre outras, as tabelas `users`, `projects`, `project_user`, `tasks`, `subtasks`, `task_comments`, `media`, `notifications` e as tabelas de roles e permissions do Spatie Permission/Shield. `project_user` implementa a relação muitos-para-muitos entre projetos e usuários; tarefas têm relações para projeto, responsável, criador, subtarefas, comentários e arquivos.
+
+## Testes e qualidade
+
+Execute os testes automatizados:
+
+```bash
+php artisan test --compact
+```
+
+Formate os arquivos PHP com Pint:
+
+```bash
+vendor/bin/pint --format agent
+```
+
+A configuração de testes usa SQLite em memória; a aplicação em desenvolvimento usa PostgreSQL conforme o `.env`.
+
+## Solução de problemas
+
+- **`npm run dev` retorna `127` ou `vite: not found`:** execute `npm install` na raiz do projeto e tente novamente.
+- **Erro de conexão com PostgreSQL:** verifique `docker compose ps`, aguarde o healthcheck e confira host, porta, banco e credenciais no `.env`.
+- **Tabelas ausentes:** execute `php artisan migrate --seed`.
+- **Arquivos não aparecem em URLs locais:** verifique `FILESYSTEM_DISK=public` no `.env` e execute `php artisan storage:link`.
+- **Configuração antiga em cache:** execute `php artisan optimize:clear`.
+
+Para parar o banco sem remover os dados persistidos no volume:
+
+```bash
+docker compose stop postgres
+```
+
+> `docker compose down -v` também remove o volume do PostgreSQL e apaga os dados locais; use somente se quiser realmente reiniciar o banco do zero.
+
+## Git
+
+Use commits pequenos e descritivos, por exemplo:
+
+```text
+feat: adicionar filtro de tarefas atrasadas
+fix: corrigir validação de prazo
+```
