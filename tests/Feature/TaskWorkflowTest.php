@@ -11,6 +11,8 @@ use App\Enums\TaskStatus;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
+use Database\Seeders\ProjectManagementSeeder;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
@@ -113,9 +115,10 @@ class TaskWorkflowTest extends TestCase
         $manager = $this->createUserWithRole(RoleName::Manager);
         $project = $this->createProject($manager);
         $this->createTask($project, $manager, $manager);
+        $this->actingAs($manager);
 
         try {
-            app(CompleteProject::class)($project);
+            app(CompleteProject::class)($project, $manager);
             $this->fail('A project with open tasks should not be completed.');
         } catch (ValidationException $exception) {
             $this->assertSame(
@@ -125,6 +128,65 @@ class TaskWorkflowTest extends TestCase
         }
 
         $this->assertSame(ProjectStatus::InProgress, $project->fresh()->status);
+    }
+
+    public function test_project_manager_can_complete_project_after_all_tasks_are_closed(): void
+    {
+        $manager = $this->createUserWithRole(RoleName::Manager);
+        $project = $this->createProject($manager);
+        $task = $this->createTask($project, $manager, $manager);
+        $task->update(['status' => TaskStatus::Completed]);
+
+        $completedProject = app(CompleteProject::class)($project, $manager);
+
+        $this->assertSame(ProjectStatus::Completed, $completedProject->status);
+        $this->assertDatabaseHas('projects', ['id' => $project->id, 'status' => ProjectStatus::Completed->value]);
+    }
+
+    public function test_manager_cannot_complete_another_managers_project(): void
+    {
+        $manager = $this->createUserWithRole(RoleName::Manager);
+        $otherManager = $this->createUserWithRole(RoleName::Manager);
+        $project = $this->createProject($otherManager);
+        $this->actingAs($manager);
+
+        $this->expectException(AuthorizationException::class);
+
+        app(CompleteProject::class)($project, $manager);
+    }
+
+    public function test_completing_last_open_task_does_not_implicitly_complete_project(): void
+    {
+        $manager = $this->createUserWithRole(RoleName::Manager);
+        $project = $this->createProject($manager);
+        $task = $this->createTask($project, $manager, $manager);
+
+        foreach ([TaskStatus::InProgress, TaskStatus::InReview, TaskStatus::Completed] as $status) {
+            app(TransitionTask::class)($task, $status, $manager);
+        }
+
+        $this->assertSame(ProjectStatus::InProgress, $project->fresh()->status);
+        $this->assertTrue($project->fresh()->canBeCompleted());
+    }
+
+    public function test_project_dates_cannot_exclude_existing_task_dates(): void
+    {
+        $manager = $this->createUserWithRole(RoleName::Manager);
+        $project = $this->createProject($manager);
+        $task = $this->createTask($project, $manager, $manager);
+        $task->update(['start_date' => today()->addDays(5), 'due_date' => today()->addDays(10)]);
+
+        try {
+            $project->update(['end_date' => today()->addDays(7)]);
+            $this->fail('A project end date cannot exclude an existing task due date.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(
+                'As datas das tarefas precisam permanecer dentro do período do projeto.',
+                $exception->errors()['end_date'][0],
+            );
+        }
+
+        $this->assertSame(today()->addDays(30)->toDateString(), $project->fresh()->end_date->toDateString());
     }
 
     public function test_invalid_task_transition_is_rejected(): void
@@ -199,7 +261,7 @@ class TaskWorkflowTest extends TestCase
         $this->assertSame(50, $project->fresh()->progress);
     }
 
-    public function test_member_can_only_update_tasks_assigned_to_them(): void
+    public function test_member_can_only_change_status_of_tasks_assigned_to_them(): void
     {
         $manager = $this->createUserWithRole(RoleName::Manager);
         $member = $this->createUserWithRole(RoleName::Member);
@@ -209,8 +271,13 @@ class TaskWorkflowTest extends TestCase
         $assignedTask = $this->createTask($project, $manager, $member);
         $otherTask = $this->createTask($project, $manager, $otherMember);
 
-        $this->assertTrue($member->can('update', $assignedTask));
+        $this->assertFalse($member->can('update', $assignedTask));
         $this->assertFalse($member->can('update', $otherTask));
+        $this->assertTrue($member->can('changeStatus', $assignedTask));
+        $this->assertFalse($member->can('changeStatus', $otherTask));
+        $this->assertTrue($member->can('view', $assignedTask));
+        $this->assertFalse($member->can('view', $otherTask));
+        $this->assertSame([$assignedTask->id], $member->visibleTasksQuery()->pluck('id')->all());
     }
 
     public function test_member_can_view_participating_project_and_task_pages(): void
@@ -219,14 +286,16 @@ class TaskWorkflowTest extends TestCase
         $member = $this->createUserWithRole(RoleName::Member);
         $project = $this->createProject($manager);
         $project->members()->attach($member->id);
-        $task = $this->createTask($project, $manager, $manager);
+        $ownTask = $this->createTask($project, $manager, $member);
+        $otherTask = $this->createTask($project, $manager, $manager);
 
         $this->actingAs($member)
             ->get('/admin/projects/'.$project->id)
             ->assertOk();
 
-        $this->get('/admin/tasks/'.$task->id)
-            ->assertOk();
+        $this->get('/admin/tasks/'.$ownTask->id)->assertOk();
+        $this->get('/admin/tasks/'.$ownTask->id.'/edit')->assertForbidden();
+        $this->get('/admin/tasks/'.$otherTask->id)->assertNotFound();
     }
 
     public function test_manager_cannot_open_another_managers_project(): void
@@ -253,6 +322,72 @@ class TaskWorkflowTest extends TestCase
 
         $this->get('/admin/tasks')
             ->assertOk();
+    }
+
+    public function test_demo_seeder_creates_shield_permissions_before_assigning_roles(): void
+    {
+        $this->seed(ProjectManagementSeeder::class);
+
+        $administrator = User::query()->where('email', 'admin@example.com')->firstOrFail();
+        $manager = User::query()->where('email', 'gestor@example.com')->firstOrFail();
+        $member = User::query()->where('email', 'membro@example.com')->firstOrFail();
+
+        $this->assertTrue($administrator->hasPermissionTo('Create:User'));
+        $this->assertTrue($manager->hasPermissionTo('Create:Project'));
+        $this->assertFalse($manager->hasPermissionTo('Create:User'));
+        $this->assertTrue($member->hasPermissionTo('ViewAny:Project'));
+        $this->assertFalse($member->hasPermissionTo('Create:Task'));
+    }
+
+    public function test_my_tasks_tabs_filter_assigned_tasks_by_requested_category(): void
+    {
+        $manager = $this->createUserWithRole(RoleName::Manager);
+        $member = $this->createUserWithRole(RoleName::Member);
+        $project = $this->createProject($manager);
+        $project->update(['start_date' => today()->subDays(10)]);
+        $project->members()->attach($member->id);
+
+        $todoTask = $this->createTask($project, $manager, $member);
+        $todoTask->update(['title' => 'Minha tarefa a fazer']);
+        $overdueTask = $this->createTask($project, $manager, $member);
+        $overdueTask->update(['title' => 'Minha tarefa atrasada', 'due_date' => today()->subDay()]);
+        $reviewTask = $this->createTask($project, $manager, $member);
+        $reviewTask->update(['title' => 'Minha tarefa em revisão', 'status' => TaskStatus::InReview]);
+        $completedTask = $this->createTask($project, $manager, $member);
+        $completedTask->update(['title' => 'Minha tarefa concluída', 'status' => TaskStatus::Completed]);
+        $backlogTask = $this->createTask($project, $manager, $member);
+        $backlogTask->update(['title' => 'Minha tarefa no backlog', 'status' => TaskStatus::Backlog]);
+
+        $this->actingAs($member)
+            ->get('/admin/my-tasks?tab=overdue')
+            ->assertOk()
+            ->assertSee('Minha tarefa atrasada')
+            ->assertDontSee('Minha tarefa em revisão');
+
+        $this->get('/admin/my-tasks?tab=in_review')
+            ->assertOk()
+            ->assertSee('Minha tarefa em revisão')
+            ->assertDontSee('Minha tarefa atrasada');
+
+        $this->get('/admin/my-tasks?tab=todo')
+            ->assertOk()
+            ->assertSee('Minha tarefa a fazer')
+            ->assertDontSee('Minha tarefa em revisão');
+
+        $this->get('/admin/my-tasks?tab=completed')
+            ->assertOk()
+            ->assertSee('Minha tarefa concluída')
+            ->assertDontSee('Minha tarefa no backlog');
+
+        $this->get('/admin/my-tasks?tab=in_progress')
+            ->assertOk()
+            ->assertDontSee('Minha tarefa a fazer')
+            ->assertDontSee('Minha tarefa concluída');
+
+        $this->get('/admin/my-tasks?tab=all')
+            ->assertOk()
+            ->assertSee('Minha tarefa no backlog')
+            ->assertSee('Minha tarefa concluída');
     }
 
     private function createUserWithRole(RoleName $roleName): User

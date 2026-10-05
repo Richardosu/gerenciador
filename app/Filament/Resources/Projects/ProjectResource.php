@@ -13,6 +13,7 @@ use App\Filament\Resources\Projects\RelationManagers\MembersRelationManager;
 use App\Filament\Resources\Projects\RelationManagers\TasksRelationManager;
 use App\Models\Project;
 use App\Models\User;
+use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
@@ -100,11 +101,21 @@ class ProjectResource extends Resource
             ->filters([
                 SelectFilter::make('status')->label('Status')->options(ProjectStatus::class),
                 SelectFilter::make('priority')->label('Prioridade')->options(Priority::class),
-                SelectFilter::make('manager_id')->label('Gestor')->relationship('manager', 'name'),
+                SelectFilter::make('manager_id')
+                    ->label('Gestor')
+                    ->relationship(
+                        'manager',
+                        'name',
+                        fn (Builder $query): Builder => $query->whereIn(
+                            'users.id',
+                            auth()->user()->visibleProjectsQuery()->select('manager_id')->distinct(),
+                        ),
+                    ),
             ])
             ->recordActions([
                 ViewAction::make(),
                 EditAction::make(),
+                DeleteAction::make(),
             ])
             ->defaultSort('start_date', 'desc');
     }

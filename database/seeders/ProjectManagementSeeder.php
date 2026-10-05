@@ -19,6 +19,24 @@ class ProjectManagementSeeder extends Seeder
 {
     public function run(): void
     {
+        $resourcePermissions = collect(['Project', 'Task', 'User', 'Role'])
+            ->crossJoin([
+                'ViewAny', 'View', 'Create', 'Update', 'Delete', 'DeleteAny',
+                'ForceDelete', 'ForceDeleteAny', 'Restore', 'RestoreAny', 'Replicate', 'Reorder',
+            ])
+            ->map(fn (array $permission): string => "{$permission[1]}:{$permission[0]}");
+
+        $standalonePermissions = collect([
+            'View:MyTasks',
+            'View:ProjectStatsWidget',
+            'View:TasksByStatusChart',
+            'View:UpcomingTasksWidget',
+        ]);
+
+        $resourcePermissions
+            ->concat($standalonePermissions)
+            ->each(fn (string $permission): mixed => Permission::findOrCreate($permission, 'web'));
+
         foreach (RoleName::cases() as $roleName) {
             Role::query()->firstOrCreate([
                 'name' => $roleName->value,
@@ -53,7 +71,7 @@ class ProjectManagementSeeder extends Seeder
         Role::findByName(RoleName::Member->value)->syncPermissions(
             Permission::query()
                 ->whereIn('name', [
-                    'View:MyTasks', 'View:Project', 'View:Task',
+                    'ViewAny:Project', 'View:Project', 'ViewAny:Task', 'View:Task', 'View:MyTasks',
                     'View:ProjectStatsWidget', 'View:TasksByStatusChart', 'View:UpcomingTasksWidget',
                 ])
                 ->get(),

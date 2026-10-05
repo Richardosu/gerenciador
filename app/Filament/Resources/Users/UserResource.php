@@ -43,7 +43,6 @@ class UserResource extends Resource
             Select::make('roles')
                 ->label('Perfil')
                 ->relationship('roles', 'name')
-                ->multiple()
                 ->preload()
                 ->required(),
             Toggle::make('is_active')->label('Usuário ativo')->default(true),

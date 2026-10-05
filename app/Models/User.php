@@ -105,11 +105,11 @@ class User extends Authenticatable implements FilamentUser
             return $query->whereHas('project', fn ($project) => $project->where('manager_id', $this->id));
         }
 
-        return $query->where(function ($inner) {
-            $inner
-                ->where('assignee_id', $this->id)
-                ->orWhereHas('project.members', fn ($members) => $members->where('users.id', $this->id));
-        });
+        if ($this->isMember()) {
+            return $query->where('assignee_id', $this->id);
+        }
+
+        return $query->whereRaw('1 = 0');
     }
 
     public function canManageProject(Project $project): bool

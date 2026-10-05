@@ -14,7 +14,9 @@ use App\Filament\Resources\Tasks\RelationManagers\CommentsRelationManager;
 use App\Filament\Resources\Tasks\RelationManagers\SubtasksRelationManager;
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\User;
 use Filament\Actions\Action;
+use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
@@ -127,8 +129,31 @@ class TaskResource extends Resource
                     ->description(fn (Task $record): ?string => $record->isOverdue() ? 'Atrasada' : null),
             ])
             ->filters([
-                SelectFilter::make('project_id')->label('Projeto')->relationship('project', 'name'),
-                SelectFilter::make('assignee_id')->label('Responsável')->relationship('assignee', 'name'),
+                SelectFilter::make('project_id')
+                    ->label('Projeto')
+                    ->relationship(
+                        'project',
+                        'name',
+                        fn (Builder $query): Builder => $query->whereIn(
+                            'projects.id',
+                            auth()->user()->visibleProjectsQuery()->select('projects.id'),
+                        ),
+                    ),
+                SelectFilter::make('assignee_id')
+                    ->label('Responsável')
+                    ->relationship(
+                        'assignee',
+                        'name',
+                        fn (Builder $query): Builder => $query->whereIn(
+                            'users.id',
+                            User::query()
+                                ->whereHas('assignedTasks', fn (Builder $tasks): Builder => $tasks->whereIn(
+                                    'tasks.id',
+                                    auth()->user()->visibleTasksQuery()->select('tasks.id'),
+                                ))
+                                ->select('users.id'),
+                        ),
+                    ),
                 SelectFilter::make('status')->label('Status')->options(TaskStatus::class),
                 SelectFilter::make('priority')->label('Prioridade')->options(Priority::class),
             ])
@@ -168,6 +193,8 @@ class TaskResource extends Resource
                     ->action(fn (Task $record) => app(TransitionTask::class)($record, TaskStatus::Cancelled, auth()->user())),
                 EditAction::make()
                     ->visible(fn (Task $record): bool => auth()->user()?->can('update', $record)),
+                DeleteAction::make()
+                    ->visible(fn (Task $record): bool => auth()->user()?->can('delete', $record)),
             ])
             ->defaultSort('due_date');
     }

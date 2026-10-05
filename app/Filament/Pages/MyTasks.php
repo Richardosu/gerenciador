@@ -11,10 +11,9 @@ use Filament\Pages\Page;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
-use Filament\Tables\Filters\Filter;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\Url;
 
 class MyTasks extends Page implements HasTable
 {
@@ -30,10 +29,23 @@ class MyTasks extends Page implements HasTable
 
     protected static ?int $navigationSort = 1;
 
+    #[Url(as: 'tab', except: 'all')]
+    public string $activeTab = 'all';
+
+    public function setActiveTab(string $tab): void
+    {
+        if (! in_array($tab, ['all', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'], true)) {
+            return;
+        }
+
+        $this->activeTab = $tab;
+        $this->resetTable();
+    }
+
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn (): Builder => Task::query()->assignedTo(auth()->user()))
+            ->query(fn (): Builder => $this->getTasksQuery())
             ->columns([
                 TextColumn::make('title')->label('Tarefa')->searchable()->sortable(),
                 TextColumn::make('project.name')->label('Projeto')->sortable(),
@@ -45,20 +57,6 @@ class MyTasks extends Page implements HasTable
                     ->sortable()
                     ->color(fn (Task $record): ?string => $record->isOverdue() ? 'danger' : null)
                     ->description(fn (Task $record): ?string => $record->isOverdue() ? 'Atrasada' : null),
-            ])
-            ->filters([
-                SelectFilter::make('status')
-                    ->label('Situação')
-                    ->options([
-                        TaskStatus::Backlog->value => TaskStatus::Backlog->getLabel(),
-                        TaskStatus::Todo->value => TaskStatus::Todo->getLabel(),
-                        TaskStatus::InProgress->value => TaskStatus::InProgress->getLabel(),
-                        TaskStatus::InReview->value => TaskStatus::InReview->getLabel(),
-                        TaskStatus::Completed->value => TaskStatus::Completed->getLabel(),
-                    ]),
-                Filter::make('overdue')
-                    ->label('Atrasadas')
-                    ->query(fn (Builder $query): Builder => $query->overdue()),
             ])
             ->recordActions([
                 Action::make('start')
@@ -82,5 +80,19 @@ class MyTasks extends Page implements HasTable
             ])
             ->recordUrl(fn (Task $record): string => TaskResource::getUrl('view', ['record' => $record]))
             ->defaultSort('due_date');
+    }
+
+    private function getTasksQuery(): Builder
+    {
+        $query = Task::query()->assignedTo(auth()->user());
+
+        return match ($this->activeTab) {
+            'todo' => $query->where('status', TaskStatus::Todo),
+            'in_progress' => $query->where('status', TaskStatus::InProgress),
+            'in_review' => $query->where('status', TaskStatus::InReview),
+            'overdue' => $query->overdue(),
+            'completed' => $query->where('status', TaskStatus::Completed),
+            default => $query,
+        };
     }
 }

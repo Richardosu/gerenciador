@@ -21,7 +21,7 @@ class EditProject extends EditRecord
                 ->color('success')
                 ->requiresConfirmation()
                 ->visible(fn (): bool => $this->record->status !== ProjectStatus::Completed && auth()->user()?->canManageProject($this->record))
-                ->action(fn () => app(CompleteProject::class)($this->record)),
+                ->action(fn () => app(CompleteProject::class)($this->record, auth()->user())),
         ];
     }
 

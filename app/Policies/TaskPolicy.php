@@ -14,6 +14,14 @@ class TaskPolicy
 
     public function view(User $user, Task $task): bool
     {
+        if ($user->canManageProject($task->project)) {
+            return true;
+        }
+
+        if ($user->isMember()) {
+            return (int) $task->assignee_id === (int) $user->id;
+        }
+
         return $user->participatesIn($task->project);
     }
 
@@ -24,11 +32,7 @@ class TaskPolicy
 
     public function update(User $user, Task $task): bool
     {
-        if ($user->canManageProject($task->project)) {
-            return true;
-        }
-
-        return $user->isMember() && (int) $task->assignee_id === (int) $user->id;
+        return $user->canManageProject($task->project);
     }
 
     public function changeStatus(User $user, Task $task): bool
