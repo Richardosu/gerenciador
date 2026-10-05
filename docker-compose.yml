@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gerenciador-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gerenciador
+      POSTGRES_USER: gerenciador
+      POSTGRES_PASSWORD: gerenciador
+    ports:
+      - "5432:5432"
+    volumes:
+      - gerenciador_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gerenciador -d gerenciador"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  gerenciador_pgdata:
